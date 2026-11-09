@@ -1,0 +1,548 @@
+{
+  "info": {
+    "name": "LedgerPay",
+    "description": "Run in order against the local simulated INR API. The create requests save the wallet IDs. New funding and transfer requests generate keys. Their replay requests send the saved keys and check the original responses.",
+    "schema": "https://schema.postman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "demoClient",
+      "value": "postman-demo"
+    },
+    {
+      "key": "senderWalletId",
+      "value": ""
+    },
+    {
+      "key": "receiverWalletId",
+      "value": ""
+    },
+    {
+      "key": "fundKey",
+      "value": ""
+    },
+    {
+      "key": "transferKey",
+      "value": ""
+    },
+    {
+      "key": "transferId",
+      "value": ""
+    },
+    {
+      "key": "fundResponse",
+      "value": ""
+    },
+    {
+      "key": "transferResponse",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/health"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "if (pm.response.code === 200) {",
+              "  const body = pm.response.json();",
+              "  pm.test(\"Process is running\", () => pm.expect(body.status).to.equal(\"ok\"));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Create sender wallet",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/wallets",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"owner_name\": \"Asha\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+              "if (pm.response.code === 201) {",
+              "  const body = pm.response.json();",
+              "  pm.test(\"New balance is zero\", () => pm.expect(body.balance_paise).to.equal(0));",
+              "  pm.collectionVariables.set(\"senderWalletId\", String(body.id));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Create receiver wallet",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/wallets",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"owner_name\": \"Ravi\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+              "if (pm.response.code === 201) {",
+              "  const body = pm.response.json();",
+              "  pm.test(\"New balance is zero\", () => pm.expect(body.balance_paise).to.equal(0));",
+              "  pm.collectionVariables.set(\"receiverWalletId\", String(body.id));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "List wallets",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/wallets"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "if (pm.response.code === 200) {",
+              "  const body = pm.response.json();",
+              "  pm.test(\"Both demo wallets are listed\", () => pm.expect(body.map(wallet => String(wallet.id))).to.include.members([pm.collectionVariables.get(\"senderWalletId\"), pm.collectionVariables.get(\"receiverWalletId\")]));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Get sender wallet",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/wallets/{{senderWalletId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "if (pm.response.code === 200) {",
+              "  const body = pm.response.json();",
+              "  pm.test(\"Sender ID matches\", () => pm.expect(String(body.id)).to.equal(pm.collectionVariables.get(\"senderWalletId\")));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Fund sender with simulated INR",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-Demo-Client",
+            "value": "{{demoClient}}",
+            "type": "text"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{fundKey}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/wallets/{{senderWalletId}}/fund",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount_paise\": 100000\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set(\"fundKey\", pm.variables.replaceIn(\"{{$guid}}\"));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+              "if (pm.response.code === 201) {",
+              "  const body = pm.response.json();",
+              "  pm.test(\"Funding is simulated\", () => pm.expect(body.simulated).to.equal(true));",
+              "  pm.collectionVariables.set(\"fundResponse\", JSON.stringify(body));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Replay funding",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-Demo-Client",
+            "value": "{{demoClient}}",
+            "type": "text"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{fundKey}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/wallets/{{senderWalletId}}/fund",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount_paise\": 100000\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+              "if (pm.response.code === 201) {",
+              "  const body = pm.response.json();",
+              "  pm.test(\"Original funding response\", () => pm.expect(body).to.deep.equal(JSON.parse(pm.collectionVariables.get(\"fundResponse\"))));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Get funded balance",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/wallets/{{senderWalletId}}/balance"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "if (pm.response.code === 200) {",
+              "  const body = pm.response.json();",
+              "  pm.test(\"Funding credited once\", () => pm.expect(body.balance_paise).to.equal(100000));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Transfer to receiver",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-Demo-Client",
+            "value": "{{demoClient}}",
+            "type": "text"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{transferKey}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/transfers",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sender_wallet_id\": {{senderWalletId}},\n  \"receiver_wallet_id\": {{receiverWalletId}},\n  \"amount_paise\": 50000\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set(\"transferKey\", pm.variables.replaceIn(\"{{$guid}}\"));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+              "if (pm.response.code === 201) {",
+              "  const body = pm.response.json();",
+              "  pm.test(\"Transfer completed\", () => pm.expect(body.status).to.equal(\"completed\"));",
+              "  pm.collectionVariables.set(\"transferId\", String(body.id));",
+              "  pm.collectionVariables.set(\"transferResponse\", JSON.stringify(body));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Replay transfer",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-Demo-Client",
+            "value": "{{demoClient}}",
+            "type": "text"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{transferKey}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/transfers",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sender_wallet_id\": {{senderWalletId}},\n  \"receiver_wallet_id\": {{receiverWalletId}},\n  \"amount_paise\": 50000\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+              "if (pm.response.code === 201) {",
+              "  const body = pm.response.json();",
+              "  pm.test(\"Original transfer response\", () => pm.expect(body).to.deep.equal(JSON.parse(pm.collectionVariables.get(\"transferResponse\"))));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Conflict for changed transfer amount",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-Demo-Client",
+            "value": "{{demoClient}}",
+            "type": "text"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{transferKey}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/transfers",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sender_wallet_id\": {{senderWalletId}},\n  \"receiver_wallet_id\": {{receiverWalletId}},\n  \"amount_paise\": 10000\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
+              "if (pm.response.code === 409) {",
+              "  const body = pm.response.json();",
+              "  pm.test(\"Idempotency conflict\", () => pm.expect(body.error.code).to.equal(\"idempotency_conflict\"));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Get transfer details",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/transfers/{{transferId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "if (pm.response.code === 200) {",
+              "  const body = pm.response.json();",
+              "  pm.test(\"Saved transfer matches\", () => pm.expect(body).to.deep.equal(JSON.parse(pm.collectionVariables.get(\"transferResponse\"))));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Get latest sender transaction",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/wallets/{{senderWalletId}}/transactions?limit=1&offset=0"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "if (pm.response.code === 200) {",
+              "  const body = pm.response.json();",
+              "  pm.test(\"Page has one entry\", () => pm.expect(body).to.have.lengthOf(1));",
+              "  pm.test(\"One debit of 50000 paise\", () => pm.expect(body[0]).to.include({kind: \"transfer_out\", balance_after_paise: 50000}));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Get receiver balance",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/wallets/{{receiverWalletId}}/balance"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "if (pm.response.code === 200) {",
+              "  const body = pm.response.json();",
+              "  pm.test(\"Transfer credited once\", () => pm.expect(body.balance_paise).to.equal(50000));",
+              "}"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
