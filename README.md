@@ -2,6 +2,8 @@
 
 LedgerPay is a Python backend for a simulated INR wallet. Create wallets, add simulated funds, transfer money between wallets, and inspect the resulting history. PostgreSQL transactions keep the debit, credit, and records together. An idempotency key lets a client retry a funding or transfer request after losing the response.
 
+Use the [balance reconciliation command](#reconcile-wallet-balances) to spot differences between stored balances and transaction history.
+
 **Stack** · Python 3.12, FastAPI, Pydantic v2, synchronous SQLAlchemy 2, PostgreSQL, psycopg, Uvicorn, python-dotenv, pytest, HTTPX, Ruff, and Postman.
 
 ## Run on Windows
@@ -167,6 +169,24 @@ flowchart LR
 
 Read [Architecture and milestone walkthrough](docs/architecture.md) to trace the Python code and database statements. Use the [Interview guide](docs/interview-guide.md) to practice explaining the design.
 
+## Reconcile wallet balances
+
+Run this from the project folder to check all wallets in the database configured by `DATABASE_URL`.
+
+```powershell
+.\.venv\Scripts\python.exe -m app.reconcile
+```
+
+The command adds funding and incoming transfers, subtracts outgoing transfers, and compares each total with the stored balance. A wallet with no history has an expected balance of zero. Both values come from one SQL query in a read-only transaction, so a transfer that commits during the check cannot put the two values out of sync. [PostgreSQL transaction snapshots](https://www.postgresql.org/docs/18/transaction-iso.html#XACT-READ-COMMITTED)
+
+Each mismatch shows the wallet ID and the difference between the stored balance and the history total. This example shows a stored balance that's ₹50 higher than the history total.
+
+```text
+Wallet 1 has 25050 paise stored and 20050 paise in history (difference +5000 paise).
+```
+
+The exit code is `0` when all balances match, `1` when any wallet differs, or `2` when the check could not run.
+
 ## Run tests
 
 With PostgreSQL running and `TEST_DATABASE_URL` configured, use these commands.
@@ -194,7 +214,7 @@ The suite uses FastAPI TestClient with HTTPX and real PostgreSQL. Tests create f
 
 - All money movement is simulated. The app handles INR only and has no banking, card, or external payment integration.
 - Wallets and caller-chosen client IDs have no authentication or authorization. Keep the API local.
-- History records explain each wallet's balance changes. They form a simple activity log, without accounting accounts or reconciliation.
+- History records form a wallet activity log. Reconciliation compares totals per wallet.
 - Successful idempotency records remain for the lifetime of the database. The service has no retention or cleanup job.
 - History pages can shift when new rows arrive between offset-based requests. Wallet listing is intended for a small demo dataset.
 - Schema setup creates missing tables. Schema changes require explicit database updates.
